@@ -6,6 +6,7 @@ dotenv.config();
 
 const authRoutes = require("./routes/auth");
 const orderRoutes = require("./routes/orders");
+const notificationRoutes = require("./routes/notifications");
 
 const app = express();
 app.use(cors());
@@ -14,6 +15,7 @@ app.use(express.json());
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/orders", orderRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // Test route
 app.get("/", (req, res) => {

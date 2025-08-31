@@ -15,7 +15,25 @@ const orderSchema = new mongoose.Schema({
   ],
   totalAmount: { type: Number, required: true },
   status: { type: String, default: "Pending" },
+  instructions: { type: String, default: "" },
+  payment: {
+    method: { type: String, enum: ["Card", "Wallet", "COD"], default: "COD" },
+    status: {
+      type: String,
+      enum: ["Pending", "Paid", "Failed"],
+      default: "Pending",
+    },
+    transactionId: String,
+    paidAt: Date,
+  },
   createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+});
+
+// Update the updatedAt field before saving
+orderSchema.pre("save", function (next) {
+  this.updatedAt = new Date();
+  next();
 });
 
 module.exports = mongoose.model("Order", orderSchema);

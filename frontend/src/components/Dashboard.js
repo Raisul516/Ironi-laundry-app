@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import axios from "axios";
+import NotificationPanel from "./NotificationPanel";
+import PaymentModal from "./PaymentModal";
 
 const Dashboard = () => {
   const { user, logout } = useAuth();
@@ -8,6 +10,10 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [message, setMessage] = useState({ type: "", text: "" });
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showPayment, setShowPayment] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   const [formData, setFormData] = useState({
     pickupDate: "",
@@ -15,6 +21,7 @@ const Dashboard = () => {
     address: "",
     services: [],
     items: [],
+    instructions: "",
   });
 
   const availableServices = [
@@ -46,6 +53,7 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchOrders();
+    fetchUnreadNotifications();
   }, []);
 
   const fetchOrders = async () => {
@@ -57,6 +65,15 @@ const Dashboard = () => {
       setMessage({ type: "error", text: "Failed to load orders" });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchUnreadNotifications = async () => {
+    try {
+      const response = await axios.get("/api/notifications/unread-count");
+      setUnreadNotifications(response.data.unreadCount);
+    } catch (error) {
+      console.error("Failed to fetch unread notifications:", error);
     }
   };
 
@@ -146,6 +163,7 @@ const Dashboard = () => {
           return service.label;
         }),
         items: formData.items,
+        instructions: formData.instructions,
       };
 
       await axios.post("/api/orders", orderData);
@@ -157,8 +175,10 @@ const Dashboard = () => {
         address: "",
         services: [],
         items: [],
+        instructions: "",
       });
       fetchOrders();
+      fetchUnreadNotifications();
     } catch (error) {
       setMessage({
         type: "error",
@@ -169,12 +189,118 @@ const Dashboard = () => {
     }
   };
 
+  const handleRepeatOrder = async (orderId) => {
+    try {
+      setLoading(true);
+      await axios.post(`/api/orders/repeat/${orderId}`);
+      setMessage({ type: "success", text: "Order repeated successfully!" });
+      fetchOrders();
+      fetchUnreadNotifications();
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: error.response?.data?.message || "Failed to repeat order",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePayment = (order) => {
+    setSelectedOrder(order);
+    setShowPayment(true);
+  };
+
+  const handlePaymentSuccess = (paymentData) => {
+    setMessage({ type: "success", text: "Payment successful!" });
+    fetchOrders();
+    fetchUnreadNotifications();
+  };
+
+  const handleUpdateInstructions = async (orderId, instructions) => {
+    try {
+      await axios.put(`/api/orders/${orderId}/instructions`, { instructions });
+      setMessage({
+        type: "success",
+        text: "Instructions updated successfully!",
+      });
+      fetchOrders();
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: error.response?.data?.message || "Failed to update instructions",
+      });
+    }
+  };
+
+  const handleCancelOrder = async (orderId) => {
+    if (!window.confirm("Are you sure you want to cancel this order?")) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await axios.put(`/api/orders/${orderId}/cancel`);
+      setMessage({ type: "success", text: "Order cancelled successfully!" });
+      fetchOrders();
+      fetchUnreadNotifications();
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: error.response?.data?.message || "Failed to cancel order",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case "Pending":
+        return "#ffc107";
+      case "Confirmed":
+        return "#17a2b8";
+      case "Washing":
+        return "#007bff";
+      case "Delivered":
+        return "#28a745";
+      case "Cancelled":
+        return "#dc3545";
+      default:
+        return "#6c757d";
+    }
+  };
+
+  const getPaymentStatusColor = (paymentStatus) => {
+    switch (paymentStatus) {
+      case "Paid":
+        return "#28a745";
+      case "Pending":
+        return "#ffc107";
+      case "Failed":
+        return "#dc3545";
+      default:
+        return "#6c757d";
+    }
+  };
+
   return (
     <div className="dashboard-container">
       <div className="dashboard-header">
         <div className="header-content">
           <h1>IRONI</h1>
           <div className="user-info">
+            <button
+              onClick={() => setShowNotifications(true)}
+              className="notification-btn"
+            >
+              🔔
+              {unreadNotifications > 0 && (
+                <span className="notification-badge">
+                  {unreadNotifications}
+                </span>
+              )}
+            </button>
             <span>Welcome, {user?.name}!</span>
             <button onClick={logout} className="logout-btn">
               Logout
@@ -307,6 +433,18 @@ const Dashboard = () => {
                 </div>
               </div>
 
+              <div className="form-group">
+                <label htmlFor="instructions">Special Instructions</label>
+                <textarea
+                  id="instructions"
+                  name="instructions"
+                  value={formData.instructions}
+                  onChange={handleInputChange}
+                  placeholder="Any special instructions (e.g., 'No bleach', 'Use softener', 'Iron at medium heat')..."
+                  rows="3"
+                />
+              </div>
+
               <button
                 type="submit"
                 className="submit-btn"
@@ -318,7 +456,7 @@ const Dashboard = () => {
           </div>
 
           <div className="orders-section">
-            <h2>Recent Orders</h2>
+            <h2>Order History</h2>
             {loading ? (
               <div className="loading">Loading orders...</div>
             ) : orders.length === 0 ? (
@@ -330,12 +468,36 @@ const Dashboard = () => {
                 {orders.map((order) => (
                   <div key={order.id} className="order-card">
                     <div className="order-header">
-                      <span className="order-status">{order.status}</span>
+                      <div className="order-status-info">
+                        <span
+                          className="order-status"
+                          style={{
+                            backgroundColor: getStatusColor(order.status),
+                          }}
+                        >
+                          {order.status}
+                        </span>
+                        {order.payment && (
+                          <span
+                            className="payment-status"
+                            style={{
+                              backgroundColor: getPaymentStatusColor(
+                                order.payment.status
+                              ),
+                            }}
+                          >
+                            {order.payment.method} - {order.payment.status}
+                          </span>
+                        )}
+                      </div>
                       <span className="order-date">
                         {new Date(order.createdAt).toLocaleDateString()}
                       </span>
                     </div>
                     <div className="order-details">
+                      <p>
+                        <strong>Order ID:</strong> #{order.id.slice(-6)}
+                      </p>
                       <p>
                         <strong>Pickup:</strong> {order.pickupDate} at{" "}
                         {order.pickupTime}
@@ -346,6 +508,11 @@ const Dashboard = () => {
                       <p>
                         <strong>Services:</strong> {order.services.join(", ")}
                       </p>
+                      {order.instructions && (
+                        <p>
+                          <strong>Instructions:</strong> {order.instructions}
+                        </p>
+                      )}
                       {order.items && order.items.length > 0 && (
                         <div className="order-items">
                           <p>
@@ -367,6 +534,47 @@ const Dashboard = () => {
                         </p>
                       )}
                     </div>
+                    <div className="order-actions">
+                      {order.status === "Pending" &&
+                        order.payment?.status !== "Paid" && (
+                          <button
+                            onClick={() => handlePayment(order)}
+                            className="pay-btn"
+                          >
+                            Pay Now
+                          </button>
+                        )}
+                      <button
+                        onClick={() => handleRepeatOrder(order.id)}
+                        className="repeat-btn"
+                      >
+                        Repeat Order
+                      </button>
+                      {order.status === "Pending" && (
+                        <button
+                          onClick={() => {
+                            const instructions = prompt(
+                              "Update instructions:",
+                              order.instructions || ""
+                            );
+                            if (instructions !== null) {
+                              handleUpdateInstructions(order.id, instructions);
+                            }
+                          }}
+                          className="edit-btn"
+                        >
+                          Edit Instructions
+                        </button>
+                      )}
+                      {order.status === "Pending" && (
+                        <button
+                          onClick={() => handleCancelOrder(order.id)}
+                          className="cancel-btn"
+                        >
+                          Cancel Order
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -374,6 +582,18 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+
+      <NotificationPanel
+        isOpen={showNotifications}
+        onClose={() => setShowNotifications(false)}
+      />
+
+      <PaymentModal
+        isOpen={showPayment}
+        onClose={() => setShowPayment(false)}
+        order={selectedOrder}
+        onPaymentSuccess={handlePaymentSuccess}
+      />
     </div>
   );
 };
