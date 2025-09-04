@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
 import axios from "axios";
 import NotificationPanel from "./NotificationPanel";
 import PaymentModal from "./PaymentModal";
+import RatingModal from "./RatingModal";
+import ClaimModal from "./ClaimModal";
 
 const Dashboard = () => {
   const { user, logout } = useAuth();
@@ -14,6 +16,9 @@ const Dashboard = () => {
   const [showPayment, setShowPayment] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [showRating, setShowRating] = useState(false);
+  const [showClaim, setShowClaim] = useState(false);
+  const [activeOrderId, setActiveOrderId] = useState(null);
 
   const [formData, setFormData] = useState({
     pickupDate: "",
@@ -51,12 +56,7 @@ const Dashboard = () => {
 
   const today = new Date().toISOString().split("T")[0];
 
-  useEffect(() => {
-    fetchOrders();
-    fetchUnreadNotifications();
-  }, []);
-
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
       const response = await axios.get("/api/orders");
@@ -66,7 +66,12 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchOrders();
+    fetchUnreadNotifications();
+  }, [fetchOrders]);
 
   const fetchUnreadNotifications = async () => {
     try {
@@ -132,7 +137,6 @@ const Dashboard = () => {
       return;
     }
 
-    // Validate items
     for (const item of formData.items) {
       if (!item.type) {
         setMessage({
@@ -210,8 +214,7 @@ const Dashboard = () => {
     setSelectedOrder(order);
     setShowPayment(true);
   };
-
-  const handlePaymentSuccess = (paymentData) => {
+  const handlePaymentSuccess = () => {
     setMessage({ type: "success", text: "Payment successful!" });
     fetchOrders();
     fetchUnreadNotifications();
@@ -234,10 +237,7 @@ const Dashboard = () => {
   };
 
   const handleCancelOrder = async (orderId) => {
-    if (!window.confirm("Are you sure you want to cancel this order?")) {
-      return;
-    }
-
+    if (!window.confirm("Are you sure you want to cancel this order?")) return;
     try {
       setLoading(true);
       await axios.put(`/api/orders/${orderId}/cancel`);
@@ -252,6 +252,26 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const openRating = (orderId) => {
+    setActiveOrderId(orderId);
+    setShowRating(true);
+  };
+  const openClaim = (orderId) => {
+    setActiveOrderId(orderId);
+    setShowClaim(true);
+  };
+
+  const onRatingSubmitted = () => {
+    setMessage({ type: "success", text: "Thanks for your feedback!" });
+  };
+
+  const onClaimSubmitted = () => {
+    setMessage({
+      type: "success",
+      text: "Claim submitted. We'll review it soon.",
+    });
   };
 
   const getStatusColor = (status) => {
@@ -330,7 +350,6 @@ const Dashboard = () => {
                   required
                 />
               </div>
-
               <div className="form-group">
                 <label htmlFor="pickupTime">Pickup Time *</label>
                 <input
@@ -342,7 +361,6 @@ const Dashboard = () => {
                   required
                 />
               </div>
-
               <div className="form-group">
                 <label htmlFor="address">Pickup Address *</label>
                 <textarea
@@ -355,7 +373,6 @@ const Dashboard = () => {
                   required
                 />
               </div>
-
               <div className="form-group">
                 <label>Select Services *</label>
                 <div className="services-grid">
@@ -377,7 +394,6 @@ const Dashboard = () => {
                   ))}
                 </div>
               </div>
-
               <div className="form-group">
                 <label>Add Items *</label>
                 <div className="items-section">
@@ -396,7 +412,7 @@ const Dashboard = () => {
                             key={availableItem.type}
                             value={availableItem.type}
                           >
-                            {availableItem.type} (৳{availableItem.basePrice})
+                            {availableItem.type}
                           </option>
                         ))}
                       </select>
@@ -432,7 +448,6 @@ const Dashboard = () => {
                   </button>
                 </div>
               </div>
-
               <div className="form-group">
                 <label htmlFor="instructions">Special Instructions</label>
                 <textarea
@@ -444,7 +459,6 @@ const Dashboard = () => {
                   rows="3"
                 />
               </div>
-
               <button
                 type="submit"
                 className="submit-btn"
@@ -508,11 +522,6 @@ const Dashboard = () => {
                       <p>
                         <strong>Services:</strong> {order.services.join(", ")}
                       </p>
-                      {order.instructions && (
-                        <p>
-                          <strong>Instructions:</strong> {order.instructions}
-                        </p>
-                      )}
                       {order.items && order.items.length > 0 && (
                         <div className="order-items">
                           <p>
@@ -521,12 +530,16 @@ const Dashboard = () => {
                           <ul>
                             {order.items.map((item, idx) => (
                               <li key={idx}>
-                                {item.quantity}x {item.type} (৳{item.price}{" "}
-                                each)
+                                {item.quantity}x {item.type}
                               </li>
                             ))}
                           </ul>
                         </div>
+                      )}
+                      {order.instructions && (
+                        <p>
+                          <strong>Instructions:</strong> {order.instructions}
+                        </p>
                       )}
                       {order.totalAmount && (
                         <p className="order-total">
@@ -574,6 +587,22 @@ const Dashboard = () => {
                           Cancel Order
                         </button>
                       )}
+                      {order.status === "Delivered" && (
+                        <>
+                          <button
+                            onClick={() => openRating(order.id)}
+                            className="repeat-btn"
+                          >
+                            Rate Order
+                          </button>
+                          <button
+                            onClick={() => openClaim(order.id)}
+                            className="edit-btn"
+                          >
+                            Report Damage
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -587,12 +616,23 @@ const Dashboard = () => {
         isOpen={showNotifications}
         onClose={() => setShowNotifications(false)}
       />
-
       <PaymentModal
         isOpen={showPayment}
         onClose={() => setShowPayment(false)}
         order={selectedOrder}
         onPaymentSuccess={handlePaymentSuccess}
+      />
+      <RatingModal
+        isOpen={showRating}
+        onClose={() => setShowRating(false)}
+        orderId={activeOrderId}
+        onSubmitted={onRatingSubmitted}
+      />
+      <ClaimModal
+        isOpen={showClaim}
+        onClose={() => setShowClaim(false)}
+        orderId={activeOrderId}
+        onSubmitted={onClaimSubmitted}
       />
     </div>
   );

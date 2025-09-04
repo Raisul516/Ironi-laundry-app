@@ -8,6 +8,17 @@ const PaymentModal = ({ isOpen, onClose, order, onPaymentSuccess }) => {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  const confirmImmediately = async () => {
+    // Simulate payment confirmation regardless of method
+    const transactionId = `TXN_${Date.now()}_${Math.random()
+      .toString(36)
+      .substr(2, 6)}`;
+    const response = await axios.put(`/api/orders/${order.id}/pay`, {
+      transactionId,
+    });
+    return response;
+  };
+
   const handlePayment = async () => {
     if (!paymentMethod) {
       setError("Please select a payment method");
@@ -19,49 +30,20 @@ const PaymentModal = ({ isOpen, onClose, order, onPaymentSuccess }) => {
       setError("");
       setSuccess("");
 
-      const response = await axios.post(`/api/orders/${order.id}/pay`, {
-        paymentMethod,
-      });
+      // Initiate payment (creates/updates payment object)
+      await axios.post(`/api/orders/${order.id}/pay`, { paymentMethod });
 
-      setSuccess(response.data.message);
+      // Immediately confirm to mark as Paid and move order forward
+      const confirmRes = await confirmImmediately();
 
-      // If payment is successful, call the callback
-      if (response.data.payment.status === "Paid") {
-        setTimeout(() => {
-          onPaymentSuccess(response.data);
-          onClose();
-        }, 1500);
-      }
-    } catch (error) {
-      setError(error.response?.data?.message || "Payment failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleConfirmCardPayment = async () => {
-    try {
-      setLoading(true);
-      setError("");
-      setSuccess("");
-
-      // Simulate payment confirmation (in real app, this would come from payment gateway)
-      const transactionId = `TXN_${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}`;
-
-      const response = await axios.put(`/api/orders/${order.id}/pay`, {
-        transactionId,
-      });
-
-      setSuccess(response.data.message);
+      setSuccess(confirmRes.data.message || "Payment confirmed successfully");
 
       setTimeout(() => {
-        onPaymentSuccess(response.data);
+        onPaymentSuccess(confirmRes.data);
         onClose();
-      }, 1500);
+      }, 800);
     } catch (error) {
-      setError(error.response?.data?.message || "Payment confirmation failed");
+      setError(error.response?.data?.message || "Payment failed");
     } finally {
       setLoading(false);
     }
@@ -109,7 +91,7 @@ const PaymentModal = ({ isOpen, onClose, order, onPaymentSuccess }) => {
                 <div className="method-info">
                   <span className="method-name">Cash on Delivery</span>
                   <span className="method-description">
-                    Pay when your order is delivered
+                    Mark as paid on delivery
                   </span>
                 </div>
               </label>
@@ -125,7 +107,7 @@ const PaymentModal = ({ isOpen, onClose, order, onPaymentSuccess }) => {
                 <div className="method-info">
                   <span className="method-name">Credit/Debit Card</span>
                   <span className="method-description">
-                    Secure online payment
+                    Simulated confirmation
                   </span>
                 </div>
               </label>
@@ -141,7 +123,7 @@ const PaymentModal = ({ isOpen, onClose, order, onPaymentSuccess }) => {
                 <div className="method-info">
                   <span className="method-name">Digital Wallet</span>
                   <span className="method-description">
-                    Pay using mobile wallet
+                    Simulated confirmation
                   </span>
                 </div>
               </label>
@@ -152,34 +134,13 @@ const PaymentModal = ({ isOpen, onClose, order, onPaymentSuccess }) => {
           {success && <div className="success-message">{success}</div>}
 
           <div className="payment-actions">
-            {paymentMethod === "COD" ? (
-              <button
-                onClick={handlePayment}
-                disabled={loading}
-                className="pay-btn cod-btn"
-              >
-                {loading ? "Processing..." : "Confirm COD"}
-              </button>
-            ) : (
-              <div className="card-payment-flow">
-                <button
-                  onClick={handlePayment}
-                  disabled={loading}
-                  className="pay-btn card-btn"
-                >
-                  {loading ? "Processing..." : "Pay Now"}
-                </button>
-                {paymentMethod !== "COD" && (
-                  <button
-                    onClick={handleConfirmCardPayment}
-                    disabled={loading}
-                    className="confirm-btn"
-                  >
-                    Confirm Payment
-                  </button>
-                )}
-              </div>
-            )}
+            <button
+              onClick={handlePayment}
+              disabled={loading}
+              className="pay-btn card-btn"
+            >
+              {loading ? "Processing..." : "Pay Now"}
+            </button>
           </div>
         </div>
       </div>

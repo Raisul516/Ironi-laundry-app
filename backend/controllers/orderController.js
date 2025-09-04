@@ -8,7 +8,6 @@ exports.createOrder = async (req, res) => {
       req.body;
     const userId = req.user.id;
 
-    // Validate required fields
     if (
       !pickupDate ||
       !pickupTime ||
@@ -24,25 +23,21 @@ exports.createOrder = async (req, res) => {
       });
     }
 
-    // Validate pickup date (should not be in the past)
     const pickupDateTime = new Date(`${pickupDate}T${pickupTime}`);
     const now = new Date();
     if (pickupDateTime <= now) {
-      return res.status(400).json({
-        message: "Pickup date and time must be in the future",
-      });
+      return res
+        .status(400)
+        .json({ message: "Pickup date and time must be in the future" });
     }
 
-    // Validate services
     const validServices = [
       "Washing",
       "Ironing",
       "Dry Cleaning",
       "Express Delivery",
     ];
-    const invalidServices = services.filter(
-      (service) => !validServices.includes(service)
-    );
+    const invalidServices = services.filter((s) => !validServices.includes(s));
     if (invalidServices.length > 0) {
       return res.status(400).json({
         message: `Invalid services: ${invalidServices.join(", ")}`,
@@ -50,7 +45,6 @@ exports.createOrder = async (req, res) => {
       });
     }
 
-    // Validate items
     const validItemTypes = [
       "Shirt",
       "Pants",
@@ -71,70 +65,39 @@ exports.createOrder = async (req, res) => {
 
     for (const item of items) {
       if (!validItemTypes.includes(item.type)) {
-        return res.status(400).json({
-          message: `Invalid item type: ${item.type}`,
-          validItemTypes,
-        });
+        return res
+          .status(400)
+          .json({ message: `Invalid item type: ${item.type}`, validItemTypes });
       }
       if (!item.quantity || item.quantity < 1) {
-        return res.status(400).json({
-          message: `Invalid quantity for ${item.type}`,
-        });
+        return res
+          .status(400)
+          .json({ message: `Invalid quantity for ${item.type}` });
       }
     }
 
-    // Calculate total amount
-    let totalAmount = 0;
-    const processedItems = [];
+    // Service fees (flat) and pricing rule: total = totalItems * sum(service fees)
+    const serviceFees = {
+      Washing: 50,
+      Ironing: 30,
+      "Dry Cleaning": 80,
+      "Express Delivery": 100,
+    };
+    const perItemServiceCost = services.reduce(
+      (sum, s) => sum + (serviceFees[s] || 0),
+      0
+    );
 
-    for (const item of items) {
-      // Base prices for different item types
-      const basePrices = {
-        Shirt: 30,
-        Pants: 40,
-        Dress: 60,
-        Suit: 100,
-        Jacket: 80,
-        Sweater: 50,
-        "T-Shirt": 25,
-        Jeans: 45,
-        Skirt: 35,
-        Blouse: 35,
-        Coat: 90,
-        Towel: 20,
-        "Bed Sheet": 80,
-        Curtain: 120,
-        "Table Cloth": 60,
-      };
+    const totalItems = items.reduce((sum, it) => sum + (it.quantity || 0), 0);
+    const totalAmount = perItemServiceCost * totalItems;
 
-      const basePrice = basePrices[item.type] || 30;
-      let itemPrice = basePrice;
+    // Store items with a uniform per-item price equal to service cost
+    const processedItems = items.map((it) => ({
+      type: it.type,
+      quantity: it.quantity,
+      price: perItemServiceCost,
+    }));
 
-      // Apply service multipliers
-      if (services.includes("Washing")) {
-        itemPrice += basePrice * 0.5; // 50% extra for washing
-      }
-      if (services.includes("Ironing")) {
-        itemPrice += basePrice * 0.3; // 30% extra for ironing
-      }
-      if (services.includes("Dry Cleaning")) {
-        itemPrice += basePrice * 0.8; // 80% extra for dry cleaning
-      }
-      if (services.includes("Express Delivery")) {
-        itemPrice += basePrice * 0.4; // 40% extra for express delivery
-      }
-
-      const totalItemPrice = itemPrice * item.quantity;
-      totalAmount += totalItemPrice;
-
-      processedItems.push({
-        type: item.type,
-        quantity: item.quantity,
-        price: itemPrice,
-      });
-    }
-
-    // Create new order
     const newOrder = new Order({
       userId,
       pickupDate,
@@ -149,14 +112,11 @@ exports.createOrder = async (req, res) => {
 
     await newOrder.save();
 
-    // Create notification for order creation
     await new Notification({
       userId,
       message: `Your order #${newOrder._id
         .toString()
-        .slice(
-          -6
-        )} has been created successfully. Pickup scheduled for ${pickupDate} at ${pickupTime}.`,
+        .slice(-6)} has been created. Pickup ${pickupDate} at ${pickupTime}.`,
       type: "status_update",
       orderId: newOrder._id,
     }).save();
@@ -179,10 +139,9 @@ exports.createOrder = async (req, res) => {
     });
   } catch (err) {
     console.error("Create order error:", err);
-    res.status(500).json({
-      message: "Failed to create order",
-      error: err.message,
-    });
+    res
+      .status(500)
+      .json({ message: "Failed to create order", error: err.message });
   }
 };
 
@@ -210,10 +169,9 @@ exports.getUserOrders = async (req, res) => {
     });
   } catch (err) {
     console.error("Get user orders error:", err);
-    res.status(500).json({
-      message: "Failed to get orders",
-      error: err.message,
-    });
+    res
+      .status(500)
+      .json({ message: "Failed to get orders", error: err.message });
   }
 };
 
@@ -226,28 +184,46 @@ exports.getOrderHistory = async (req, res) => {
 exports.repeatOrder = async (req, res) => {
   try {
     const { orderId } = req.params;
+    const { pickupDate: reqPickupDate, pickupTime: reqPickupTime } =
+      req.body || {};
     const userId = req.user.id;
 
-    // Find the original order
     const originalOrder = await Order.findOne({ _id: orderId, userId });
     if (!originalOrder) {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    // Set default pickup time to tomorrow at 10 AM
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const defaultPickupDate = tomorrow.toISOString().split("T")[0];
-    const defaultPickupTime = "10:00";
+    let nextPickupDate = reqPickupDate;
+    let nextPickupTime = reqPickupTime;
 
-    // Create new order with same items and services
+    if (!nextPickupDate || !nextPickupTime) {
+      // Default to 24 hours from now
+      const plus48 = new Date();
+      plus48.setHours(plus48.getHours() + 48);
+      const yyyy = plus48.getFullYear();
+      const mm = String(plus48.getMonth() + 1).padStart(2, "0");
+      const dd = String(plus48.getDate()).padStart(2, "0");
+      const hh = String(plus48.getHours()).padStart(2, "0");
+      const mi = String(plus48.getMinutes()).padStart(2, "0");
+      nextPickupDate = `${yyyy}-${mm}-${dd}`;
+      nextPickupTime = `${hh}:${mi}`;
+    }
+
+    // Validate pickup in future
+    const pickupDateTime = new Date(`${nextPickupDate}T${nextPickupTime}`);
+    if (pickupDateTime <= new Date()) {
+      return res
+        .status(400)
+        .json({ message: "Pickup date and time must be in the future" });
+    }
+
     const newOrder = new Order({
       userId,
-      pickupDate: defaultPickupDate,
-      pickupTime: defaultPickupTime,
+      pickupDate: nextPickupDate,
+      pickupTime: nextPickupTime,
       address: originalOrder.address,
       services: originalOrder.services,
-      items: originalOrder.items,
+      items: originalOrder.items, // keep the same items
       totalAmount: originalOrder.totalAmount,
       status: "Pending",
       instructions: originalOrder.instructions,
@@ -255,7 +231,6 @@ exports.repeatOrder = async (req, res) => {
 
     await newOrder.save();
 
-    // Create notification for repeated order
     await new Notification({
       userId,
       message: `Your order #${newOrder._id
@@ -264,7 +239,7 @@ exports.repeatOrder = async (req, res) => {
         .toString()
         .slice(
           -6
-        )}. Pickup scheduled for ${defaultPickupDate} at ${defaultPickupTime}.`,
+        )}. Pickup scheduled for ${nextPickupDate} at ${nextPickupTime}.`,
       type: "status_update",
       orderId: newOrder._id,
     }).save();
@@ -287,10 +262,9 @@ exports.repeatOrder = async (req, res) => {
     });
   } catch (err) {
     console.error("Repeat order error:", err);
-    res.status(500).json({
-      message: "Failed to repeat order",
-      error: err.message,
-    });
+    res
+      .status(500)
+      .json({ message: "Failed to repeat order", error: err.message });
   }
 };
 
@@ -323,10 +297,9 @@ exports.getOrder = async (req, res) => {
     });
   } catch (err) {
     console.error("Get order error:", err);
-    res.status(500).json({
-      message: "Failed to get order",
-      error: err.message,
-    });
+    res
+      .status(500)
+      .json({ message: "Failed to get order", error: err.message });
   }
 };
 
